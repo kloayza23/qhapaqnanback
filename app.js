@@ -4,6 +4,7 @@ const { ApolloServer } = require('apollo-server-express');
 const { typeDefs, resolvers } = require('./schema');
 const {
   ensureRegistrationTable,
+  ensurePonenciaTable,
   testConnection,
   getDbTime,
 } = require('./model');
@@ -25,6 +26,7 @@ app.use((req, res, next) => {
 
 async function startServer() {
   await ensureRegistrationTable();
+  await ensurePonenciaTable();
   await testConnection();
 
   const server = new ApolloServer({

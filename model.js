@@ -28,6 +28,23 @@ async function ensureRegistrationTable() {
   console.log('Table "registrations" is ready');
 }
 
+async function ensurePonenciaTable() {
+  const createTableSQL = `
+    CREATE TABLE IF NOT EXISTS ponencias (
+      id SERIAL PRIMARY KEY,
+      topic TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      affiliation TEXT,
+      city_country TEXT,
+      summary TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await pool.query(createTableSQL);
+  console.log('Table "ponencias" is ready');
+}
+
 async function testConnection() {
   const client = await pool.connect();
   try {
@@ -54,6 +71,27 @@ async function insertRegistration(input) {
     input.city || null,
     input.nationalId || null,
     input.message || null,
+  ];
+
+  const { rows } = await pool.query(insertSQL, values);
+  return rows[0];
+}
+
+async function insertPonencia(input) {
+  const insertSQL = `
+    INSERT INTO ponencias
+      (topic, full_name, affiliation, city_country, summary)
+    VALUES
+      ($1, $2, $3, $4, $5)
+    RETURNING id, topic, full_name, affiliation, city_country, summary, created_at
+  `;
+
+  const values = [
+    input.topic,
+    input.fullName,
+    input.affiliation || null,
+    input.cityCountry || null,
+    input.summary || null,
   ];
 
   const { rows } = await pool.query(insertSQL, values);
@@ -114,11 +152,68 @@ async function listRegistrations(filter = {}, pagination = {}) {
   };
 }
 
+async function listPonencias(filter = {}, pagination = {}) {
+  const where = [];
+  const values = [];
+
+  if (filter.topic) {
+    values.push(`%${filter.topic.toLowerCase()}%`);
+    where.push(`LOWER(topic) LIKE $${values.length}`);
+  }
+
+  if (filter.fullName) {
+    values.push(`%${filter.fullName.toLowerCase()}%`);
+    where.push(`LOWER(full_name) LIKE $${values.length}`);
+  }
+
+  if (filter.dateFrom) {
+    values.push(filter.dateFrom);
+    where.push(`created_at >= $${values.length}::timestamptz`);
+  }
+
+  if (filter.dateTo) {
+    values.push(filter.dateTo);
+    where.push(`created_at <= $${values.length}::timestamptz`);
+  }
+
+  const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const page = Math.max(1, Number(pagination.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(pagination.pageSize) || 20));
+  const offset = (page - 1) * pageSize;
+
+  const countSQL = `SELECT COUNT(*) FROM ponencias ${whereClause}`;
+  const totalResult = await pool.query(countSQL, values);
+  const total = Number(totalResult.rows[0].count) || 0;
+
+  const dataSQL = `
+    SELECT id, topic, full_name, affiliation, city_country, summary, created_at
+    FROM ponencias
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT $${values.length + 1}
+    OFFSET $${values.length + 2}
+  `;
+
+  const dataValues = [...values, pageSize, offset];
+  const { rows } = await pool.query(dataSQL, dataValues);
+
+  return {
+    items: rows,
+    total,
+    page,
+    pageSize,
+  };
+}
+
 module.exports = {
   pool,
   ensureRegistrationTable,
+  ensurePonenciaTable,
   testConnection,
   insertRegistration,
+  insertPonencia,
   getDbTime,
   listRegistrations,
+  listPonencias,
 };
