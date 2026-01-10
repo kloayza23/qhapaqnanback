@@ -2,6 +2,8 @@ const { gql } = require('apollo-server-express');
 const {
   insertRegistration,
   insertPonencia,
+  updatePonencia,
+  softDeletePonencia,
   getDbTime,
   listRegistrations,
   listPonencias,
@@ -26,6 +28,7 @@ const typeDefs = gql`
     affiliation: String
     cityCountry: String
     summary: String
+    status: Int!
     createdAt: String!
   }
 
@@ -87,6 +90,8 @@ const typeDefs = gql`
   type Mutation {
     submitRegistration(input: RegistrationInput!): Registration!
     createPonencia(input: PonenciaInput!): Ponencia!
+    updatePonencia(id: ID!, input: PonenciaInput!): Ponencia!
+    deletePonencia(id: ID!): Ponencia!
   }
 `;
 
@@ -159,6 +164,43 @@ const resolvers = {
         affiliation: row.affiliation,
         cityCountry: row.city_country,
         summary: row.summary,
+        status: row.status,
+        createdAt: row.created_at.toISOString(),
+      };
+    },
+    updatePonencia: async (_, { id, input }) => {
+      const row = await updatePonencia(id, input);
+
+      if (!row) {
+        throw new Error('Ponencia not found');
+      }
+
+      return {
+        id: row.id,
+        topic: row.topic,
+        fullName: row.full_name,
+        affiliation: row.affiliation,
+        cityCountry: row.city_country,
+        summary: row.summary,
+        status: row.status,
+        createdAt: row.created_at.toISOString(),
+      };
+    },
+    deletePonencia: async (_, { id }) => {
+      const row = await softDeletePonencia(id);
+
+      if (!row) {
+        throw new Error('Ponencia not found');
+      }
+
+      return {
+        id: row.id,
+        topic: row.topic,
+        fullName: row.full_name,
+        affiliation: row.affiliation,
+        cityCountry: row.city_country,
+        summary: row.summary,
+        status: row.status,
         createdAt: row.created_at.toISOString(),
       };
     },

@@ -37,11 +37,16 @@ async function ensurePonenciaTable() {
       affiliation TEXT,
       city_country TEXT,
       summary TEXT,
+      status SMALLINT NOT NULL DEFAULT 1,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
 
   await pool.query(createTableSQL);
+  await pool.query(`
+    ALTER TABLE ponencias
+    ADD COLUMN IF NOT EXISTS status SMALLINT NOT NULL DEFAULT 1
+  `);
   console.log('Table "ponencias" is ready');
 }
 
@@ -80,10 +85,10 @@ async function insertRegistration(input) {
 async function insertPonencia(input) {
   const insertSQL = `
     INSERT INTO ponencias
-      (topic, full_name, affiliation, city_country, summary)
+      (topic, full_name, affiliation, city_country, summary, status)
     VALUES
-      ($1, $2, $3, $4, $5)
-    RETURNING id, topic, full_name, affiliation, city_country, summary, created_at
+      ($1, $2, $3, $4, $5, $6)
+    RETURNING id, topic, full_name, affiliation, city_country, summary, status, created_at
   `;
 
   const values = [
@@ -92,12 +97,49 @@ async function insertPonencia(input) {
     input.affiliation || null,
     input.cityCountry || null,
     input.summary || null,
+    1,
   ];
 
   const { rows } = await pool.query(insertSQL, values);
   return rows[0];
 }
 
+async function updatePonencia(id, input) {
+  const updateSQL = `
+    UPDATE ponencias
+    SET topic = $1,
+        full_name = $2,
+        affiliation = $3,
+        city_country = $4,
+        summary = $5
+    WHERE id = $6
+    RETURNING id, topic, full_name, affiliation, city_country, summary, status, created_at
+  `;
+
+  const values = [
+    input.topic,
+    input.fullName,
+    input.affiliation || null,
+    input.cityCountry || null,
+    input.summary || null,
+    id,
+  ];
+
+  const { rows } = await pool.query(updateSQL, values);
+  return rows[0] || null;
+}
+
+async function softDeletePonencia(id) {
+  const deleteSQL = `
+    UPDATE ponencias
+    SET status = 0
+    WHERE id = $1
+    RETURNING id, topic, full_name, affiliation, city_country, summary, status, created_at
+  `;
+
+  const { rows } = await pool.query(deleteSQL, [id]);
+  return rows[0] || null;
+}
 async function getDbTime() {
   const { rows } = await pool.query('SELECT NOW() AS now');
   return rows[0].now;
@@ -156,6 +198,8 @@ async function listPonencias(filter = {}, pagination = {}) {
   const where = [];
   const values = [];
 
+  where.push('status = 1');
+
   if (filter.topic) {
     values.push(`%${filter.topic.toLowerCase()}%`);
     where.push(`LOWER(topic) LIKE $${values.length}`);
@@ -187,7 +231,7 @@ async function listPonencias(filter = {}, pagination = {}) {
   const total = Number(totalResult.rows[0].count) || 0;
 
   const dataSQL = `
-    SELECT id, topic, full_name, affiliation, city_country, summary, created_at
+    SELECT id, topic, full_name, affiliation, city_country, summary, status, created_at
     FROM ponencias
     ${whereClause}
     ORDER BY created_at DESC
@@ -213,6 +257,8 @@ module.exports = {
   testConnection,
   insertRegistration,
   insertPonencia,
+  updatePonencia,
+  softDeletePonencia,
   getDbTime,
   listRegistrations,
   listPonencias,
