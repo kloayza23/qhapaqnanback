@@ -5,6 +5,7 @@ const { typeDefs, resolvers } = require('./schema');
 const {
   ensureRegistrationTable,
   ensurePonenciaTable,
+  ensureSintesisTable,
   testConnection,
   getDbTime,
 } = require('./model');
@@ -27,6 +28,7 @@ app.use((req, res, next) => {
 async function startServer() {
   await ensureRegistrationTable();
   await ensurePonenciaTable();
+  await ensureSintesisTable();
   await testConnection();
 
   const server = new ApolloServer({
