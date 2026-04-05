@@ -2,7 +2,9 @@ const { gql } = require('apollo-server-express');
 const {
   insertRegistration,
   insertPonencia,
+  insertPonenciasBulk,
   insertSintesis,
+  insertSintesisBulk,
   updatePonencia,
   updateSintesis,
   softDeletePonencia,
@@ -79,6 +81,7 @@ const typeDefs = gql`
   input PonenciaFilterInput {
     topic: String
     fullName: String
+    cityCountry: String
     dateFrom: String
     dateTo: String
   }
@@ -106,6 +109,16 @@ const typeDefs = gql`
     pageSize: Int!
   }
 
+  type PonenciaBulkResult {
+    total: Int!
+    ids: [ID!]!
+  }
+
+  type SintesisBulkResult {
+    total: Int!
+    ids: [ID!]!
+  }
+
   type SintesisPage {
     items: [Sintesis!]!
     total: Int!
@@ -130,9 +143,11 @@ const typeDefs = gql`
   type Mutation {
     submitRegistration(input: RegistrationInput!): Registration!
     createPonencia(input: PonenciaInput!): Ponencia!
+    masivoPonencias(input: [PonenciaInput!]!): PonenciaBulkResult!
     updatePonencia(id: ID!, input: PonenciaInput!): Ponencia!
     deletePonencia(id: ID!): Ponencia!
     createSintesis(input: SintesisInput!): Sintesis!
+    masivoSintesis(input: [SintesisInput!]!): SintesisBulkResult!
     updateSintesis(id: ID!, input: SintesisInput!): Sintesis!
     deleteSintesis(id: ID!): Sintesis!
   }
@@ -231,6 +246,13 @@ const resolvers = {
         createdAt: row.created_at.toISOString(),
       };
     },
+    masivoPonencias: async (_, { input }) => {
+      const rows = await insertPonenciasBulk(input);
+      return {
+        total: rows.length,
+        ids: rows.map((row) => row.id),
+      };
+    },
     updatePonencia: async (_, { id, input }) => {
       const row = await updatePonencia(id, input);
 
@@ -281,6 +303,13 @@ const resolvers = {
         cierre: row.cierre,
         status: row.status,
         createdAt: row.created_at.toISOString(),
+      };
+    },
+    masivoSintesis: async (_, { input }) => {
+      const rows = await insertSintesisBulk(input);
+      return {
+        total: rows.length,
+        ids: rows.map((row) => row.id),
       };
     },
     updateSintesis: async (_, { id, input }) => {

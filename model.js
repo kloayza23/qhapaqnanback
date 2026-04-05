@@ -135,6 +135,56 @@ async function insertRegistration(input) {
   return rows[0];
 }
 
+const COUNTRY_LIST = [
+  'Argentina',
+  'Bolivia',
+  'Chile',
+  'Colombia',
+  'Ecuador',
+  'Peru',
+  'Perú',
+];
+
+const normalizeCountryValue = (cityCountry, affiliation) => {
+  const raw = (cityCountry || '').trim();
+  if (raw) {
+    const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
+    const candidate = parts.length ? parts[parts.length - 1] : raw;
+    const normalized = COUNTRY_LIST.find(
+      (country) => country.toLowerCase() === candidate.toLowerCase()
+    );
+    return normalized || candidate;
+  }
+
+  const aff = (affiliation || '').toLowerCase();
+  if (aff.includes('investigador') && aff.includes('independiente')) {
+    return 'Ecuador';
+  }
+
+  for (const country of COUNTRY_LIST) {
+    if (aff.includes(country.toLowerCase())) {
+      return country === 'Perú' ? 'Peru' : country;
+    }
+  }
+
+  const keywordMap = [
+    { country: 'Ecuador', keywords: ['quito', 'cuenca', 'azuay', 'ingapirka', 'pumapungo', 'universidad catolica de cuenca', 'universidad técnica del norte', 'universidad tecnica del norte', 'instituto nacional de patrimonio cultural', 'museo de cumbe', 'universidad central del ecuador'] },
+    { country: 'Peru', keywords: ['peru', 'perú', 'cusco', 'san marcos', 'apuri', 'apurímac', 'ministerio de cultura', 'qhapaq ñan – sede nacional', 'qhapaq ñan - sede nacional', 'universidad nacional de san antonio abad', 'pisco', 'lima', 'chillon', 'chillón', 'huaral', 'chinchaycocha', 'huamachuco', 'cajamarca', 'huánuco', 'huanuco', 'junín', 'junin', 'pasco', 'ancash', 'la libertad', 'ayacucho', 'huancavelica'] },
+    { country: 'Bolivia', keywords: ['bolivia', 'la paz', 'san andrés', 'san andres', 'tarija', 'beni', 'oruro', 'sajama', 'yungas', 'moxos'] },
+    { country: 'Chile', keywords: ['chile', 'tarapacá', 'tarapaca', 'arica', 'iquique', 'atacama', 'copiapó', 'copiapo'] },
+    { country: 'Argentina', keywords: ['argentina', 'catamarca', 'salta', 'jujuy', 'la rioja', 'buenos aires', 'mendoza', 'tucuman', 'humahuaca', 'famatina', 'chilecito', 'antofagasta de la sierra', 'conicet', 'inapl', 'uba', 'universidad de buenos aires'] },
+    { country: 'Colombia', keywords: ['colombia', 'nariño', 'narino', 'tunja', 'calima', 'amazonia', 'icahn', 'icanh'] },
+  ];
+
+  for (const entry of keywordMap) {
+    if (entry.keywords.some((keyword) => aff.includes(keyword))) {
+      return entry.country;
+    }
+  }
+
+  return null;
+};
+
 async function insertPonencia(input) {
   const insertSQL = `
     INSERT INTO ponencias
@@ -148,13 +198,50 @@ async function insertPonencia(input) {
     input.topic,
     input.fullName,
     input.affiliation || null,
-    input.cityCountry || null,
+    normalizeCountryValue(input.cityCountry, input.affiliation),
     input.summary || null,
     1,
   ];
 
   const { rows } = await pool.query(insertSQL, values);
   return rows[0];
+}
+
+async function insertPonenciasBulk(inputs = []) {
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const created = [];
+    for (const input of inputs) {
+      const insertSQL = `
+        INSERT INTO ponencias
+          (topic, full_name, affiliation, city_country, summary, status)
+        VALUES
+          ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+      `;
+      const values = [
+        input.topic,
+        input.fullName,
+        input.affiliation || null,
+        normalizeCountryValue(input.cityCountry, input.affiliation),
+        input.summary || null,
+        1,
+      ];
+      const { rows } = await client.query(insertSQL, values);
+      created.push(rows[0]);
+    }
+    await client.query('COMMIT');
+    return created;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 const parseLineasTrabajo = (value) => {
@@ -188,6 +275,48 @@ async function insertSintesis(input) {
 
   const { rows } = await pool.query(insertSQL, values);
   return rows[0];
+}
+
+async function insertSintesisBulk(inputs = []) {
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const created = [];
+    for (const input of inputs) {
+      const insertSQL = `
+        INSERT INTO sintesis
+          (mesa, coordinacion, fecha, fecha_fin, sintesis_general, lineas_trabajo, cierre, status)
+        VALUES
+          ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+        RETURNING id
+      `;
+
+      const lineasTrabajo = parseLineasTrabajo(input.lineasTrabajo);
+      const values = [
+        input.mesa,
+        input.coordinacion || null,
+        input.fecha || null,
+        input.fechaFin || null,
+        input.sintesisGeneral || null,
+        lineasTrabajo ? JSON.stringify(lineasTrabajo) : null,
+        input.cierre || null,
+        1,
+      ];
+
+      const { rows } = await client.query(insertSQL, values);
+      created.push(rows[0]);
+    }
+    await client.query('COMMIT');
+    return created;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function updatePonencia(id, input) {
@@ -338,6 +467,11 @@ async function listPonencias(filter = {}, pagination = {}) {
     where.push(`LOWER(full_name) LIKE $${values.length}`);
   }
 
+  if (filter.cityCountry) {
+    values.push(`%${filter.cityCountry.toLowerCase()}%`);
+    where.push(`LOWER(city_country) LIKE $${values.length}`);
+  }
+
   if (filter.dateFrom) {
     values.push(filter.dateFrom);
     where.push(`created_at >= $${values.length}::timestamptz`);
@@ -435,7 +569,9 @@ module.exports = {
   testConnection,
   insertRegistration,
   insertPonencia,
+  insertPonenciasBulk,
   insertSintesis,
+  insertSintesisBulk,
   updatePonencia,
   updateSintesis,
   softDeletePonencia,
