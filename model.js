@@ -545,7 +545,18 @@ async function listSintesis(filter = {}, pagination = {}) {
     SELECT id, mesa, coordinacion, fecha, fecha_fin, sintesis_general, lineas_trabajo, cierre, status, created_at
     FROM sintesis
     ${whereClause}
-    ORDER BY fecha DESC NULLS LAST, created_at DESC
+    ORDER BY CASE LOWER(TRIM(mesa))
+      WHEN 'chile' THEN 1
+      WHEN 'bolivia' THEN 2
+      WHEN 'peru' THEN 3
+      WHEN 'perú' THEN 3
+      WHEN 'colombia' THEN 4
+      WHEN 'ecuador' THEN 5
+      WHEN 'argentina' THEN 6
+      ELSE 99
+    END,
+    fecha DESC NULLS LAST,
+    created_at DESC
     LIMIT $${values.length + 1}
     OFFSET $${values.length + 2}
   `;
